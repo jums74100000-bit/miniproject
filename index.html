@@ -1,1 +1,684 @@
-123
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>장애물 피하기 (1분 자동차 게임)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        body {
+            font-family: 'Pretendard', sans-serif;
+            touch-action: manipulation;
+        }
+        /* Hit flash effect */
+        .hit-flash {
+            animation: flashRed 0.5s ease-out forwards;
+        }
+        @keyframes flashRed {
+            0% { background-color: rgba(239, 68, 68, 0.8); }
+            100% { background-color: rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-2 select-none overflow-hidden">
+
+    <!-- Game Container -->
+    <div class="relative w-full max-w-sm bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border-4 border-slate-700 flex flex-col items-center">
+        
+        <!-- Header Info -->
+        <div class="w-full bg-slate-900 py-3 px-4 flex justify-between items-center border-b border-slate-700 z-10">
+            <div class="text-xs font-bold text-slate-400 tracking-wider uppercase">버틴 시간</div>
+            <div class="flex items-center gap-3">
+                <!-- Jump Item Count Display -->
+                <div class="flex items-center gap-1 bg-slate-800 px-2.5 py-1 rounded-full border border-slate-700">
+                    <span class="text-amber-400 text-xs">🟡</span>
+                    <span id="itemCountText" class="text-xs font-bold text-amber-300 font-mono">0 / 5</span>
+                </div>
+                <div id="scoreText" class="text-2xl font-extrabold text-cyan-400 font-mono">0.0초</div>
+            </div>
+        </div>
+
+        <!-- Canvas Game Screen -->
+        <div class="relative w-full aspect-[3/4] bg-slate-950 overflow-hidden flex justify-center items-center">
+            <canvas id="gameCanvas" class="w-full h-full block"></canvas>
+            
+            <!-- Booster Gauge Bar (Top of canvas) -->
+            <div class="absolute top-2 left-4 right-4 z-20 bg-slate-900/80 p-1.5 rounded-lg border border-slate-700">
+                <div class="flex justify-between items-center text-[10px] text-amber-400 font-bold mb-1 px-1">
+                    <span>BOOSTER (SHIFT)</span>
+                    <span id="boosterStatusText">READY</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div id="boosterBar" class="bg-gradient-to-r from-amber-500 to-yellow-300 h-full w-full transition-all duration-75"></div>
+                </div>
+            </div>
+
+            <!-- Jump Ready Alert Overlay Badge -->
+            <div id="jumpAlert" class="absolute bottom-4 z-20 hidden animate-bounce bg-emerald-500 text-slate-950 font-black text-xs px-3 py-1 rounded-full shadow-lg border border-emerald-300">
+                🦘 JUMP READY! (SPACE)
+            </div>
+
+            <!-- Red Flash Overlay on Game Over -->
+            <div id="flashOverlay" class="absolute inset-0 pointer-events-none hidden z-20"></div>
+
+            <!-- Start / Game Over Screen Overlay -->
+            <div id="uiOverlay" class="absolute inset-0 bg-slate-950/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-6 text-center">
+                <h1 id="uiTitle" class="text-3xl font-black text-cyan-400 mb-2">장애물 피하기</h1>
+                <p id="uiDesc" class="text-sm text-slate-300 mb-6 leading-relaxed">
+                    내려오는 차를 피해 최대한 오래 버티세요!<br>
+                    시간이 지날수록 차가 빨라집니다.
+                </p>
+
+                <!-- Final Score Box -->
+                <div id="finalScoreBox" class="hidden bg-slate-900 border border-slate-700 rounded-xl p-4 w-full mb-6">
+                    <div class="text-xs text-slate-400 mb-1">최종 기록</div>
+                    <div id="finalScore" class="text-3xl font-black text-amber-400 font-mono">0.0초</div>
+                </div>
+
+                <button id="startBtn" class="w-full py-3.5 bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-slate-950 font-extrabold text-lg rounded-xl shadow-lg transition-all">
+                    게임 시작
+                </button>
+            </div>
+        </div>
+
+        <!-- Touch Controls for Mobile/Screen -->
+        <div class="w-full bg-slate-900 p-3 grid grid-cols-4 gap-2 border-t border-slate-700 z-10">
+            <button id="btnLeft" class="py-4 bg-slate-800 hover:bg-slate-700 active:bg-cyan-900/50 rounded-xl border border-slate-700 text-cyan-400 flex justify-center items-center text-2xl font-bold active:scale-95 transition-all">
+                ◀
+            </button>
+            <button id="btnRight" class="py-4 bg-slate-800 hover:bg-slate-700 active:bg-cyan-900/50 rounded-xl border border-slate-700 text-cyan-400 flex justify-center items-center text-2xl font-bold active:scale-95 transition-all">
+                ▶
+            </button>
+            <button id="btnJump" class="py-4 bg-emerald-600 opacity-50 cursor-not-allowed hover:bg-emerald-500 active:scale-95 rounded-xl border border-emerald-400 text-white font-black text-xs tracking-wider flex justify-center items-center transition-all shadow-lg">
+                JUMP🦘
+            </button>
+            <button id="btnBoost" class="py-4 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 active:scale-95 rounded-xl border border-amber-400 text-slate-950 font-black text-xs tracking-wider flex justify-center items-center transition-all shadow-lg shadow-amber-500/20">
+                BOOST⚡
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Game Canvas & Context Setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreText = document.getElementById('scoreText');
+        const itemCountText = document.getElementById('itemCountText');
+        const jumpAlert = document.getElementById('jumpAlert');
+        const flashOverlay = document.getElementById('flashOverlay');
+        const uiOverlay = document.getElementById('uiOverlay');
+        const uiTitle = document.getElementById('uiTitle');
+        const uiDesc = document.getElementById('uiDesc');
+        const finalScoreBox = document.getElementById('finalScoreBox');
+        const finalScore = document.getElementById('finalScore');
+        const startBtn = document.getElementById('startBtn');
+        const btnLeft = document.getElementById('btnLeft');
+        const btnRight = document.getElementById('btnRight');
+        const btnJump = document.getElementById('btnJump');
+        const btnBoost = document.getElementById('btnBoost');
+        const boosterBar = document.getElementById('boosterBar');
+        const boosterStatusText = document.getElementById('boosterStatusText');
+
+        // Safe RoundRect Helper function to prevent browser errors
+        function drawRoundedRect(x, y, width, height, radius) {
+            if (radius > width / 2) radius = width / 2;
+            if (radius > height / 2) radius = height / 2;
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+        }
+
+        // Dynamic Resize
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth || 320;
+            canvas.height = canvas.clientHeight || 420;
+            if (player) {
+                player.y = canvas.height - player.height - 20;
+            }
+        }
+
+        // Game State Variables
+        let isPlaying = false;
+        let startTime = 0;
+        let elapsedTime = 0;
+        let animationFrameId = null;
+        let baseSpeed = 4;
+        let speedMultiplier = 1;
+        let roadOffset = 0;
+
+        // Booster Variables
+        let isBoosting = false;
+        let boosterEnergy = 100;
+        const MAX_BOOSTER = 100;
+        const BOOST_CONSUMPTION = 1.2;
+        const BOOST_RECHARGE = 0.4;
+
+        // Item & Jump Variables
+        let collectedItems = 0;
+        const JUMP_REQUIRED_ITEMS = 5;
+        let isJumping = false;
+        let jumpProgress = 0;
+        let jumpScale = 1;
+
+        // Player Configuration (3 Lanes: 0, 1, 2)
+        const player = {
+            lane: 1,
+            x: 0,
+            y: 0,
+            width: 45,
+            height: 75,
+            color: '#06b6d4'
+        };
+
+        // Obstacles & Items Array
+        let obstacles = [];
+        let items = [];
+        let spawnTimer = 0;
+        let itemSpawnTimer = 0;
+        let spawnInterval = 60;
+
+        // Lane Calculation Helper
+        function getLaneX(laneIndex) {
+            const laneWidth = canvas.width / 3;
+            return (laneWidth * laneIndex) + (laneWidth / 2);
+        }
+
+        // Move Player Lanes
+        function moveLeft() {
+            if (!isPlaying) return;
+            if (player.lane > 0) player.lane--;
+        }
+
+        function moveRight() {
+            if (!isPlaying) return;
+            if (player.lane < 2) player.lane++;
+        }
+
+        function setBooster(active) {
+            if (!isPlaying) return;
+            if (active && boosterEnergy > 10) {
+                isBoosting = true;
+            } else if (!active) {
+                isBoosting = false;
+            }
+        }
+
+        function triggerJump() {
+            if (!isPlaying || isJumping) return;
+            if (collectedItems >= JUMP_REQUIRED_ITEMS) {
+                collectedItems = 0;
+                isJumping = true;
+                jumpProgress = 0;
+                updateJumpUI();
+                playJumpSound();
+            }
+        }
+
+        function updateJumpUI() {
+            itemCountText.textContent = `${collectedItems} / ${JUMP_REQUIRED_ITEMS}`;
+            if (collectedItems >= JUMP_REQUIRED_ITEMS) {
+                btnJump.disabled = false;
+                btnJump.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnJump.classList.add('animate-pulse', 'bg-emerald-500');
+                jumpAlert.classList.remove('hidden');
+            } else {
+                btnJump.disabled = true;
+                btnJump.classList.add('opacity-50', 'cursor-not-allowed');
+                btnJump.classList.remove('animate-pulse', 'bg-emerald-500');
+                jumpAlert.classList.add('hidden');
+            }
+        }
+
+        // Input Listeners
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                triggerJump();
+            }
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moveLeft();
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveRight();
+            if (e.key === 'Shift') setBooster(true);
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift') setBooster(false);
+        });
+
+        btnLeft.addEventListener('click', (e) => { e.preventDefault(); moveLeft(); });
+        btnRight.addEventListener('click', (e) => { e.preventDefault(); moveRight(); });
+        btnJump.addEventListener('click', (e) => { 
+            e.preventDefault(); 
+            e.stopPropagation();
+            triggerJump(); 
+        });
+        btnJump.addEventListener('touchstart', (e) => { 
+            e.preventDefault(); 
+            e.stopPropagation();
+            triggerJump(); 
+        }, { passive: false });
+
+        btnBoost.addEventListener('mousedown', (e) => { e.preventDefault(); setBooster(true); });
+        btnBoost.addEventListener('mouseup', (e) => { e.preventDefault(); setBooster(false); });
+        btnBoost.addEventListener('touchstart', (e) => { e.preventDefault(); setBooster(true); }, { passive: false });
+        btnBoost.addEventListener('touchend', (e) => { e.preventDefault(); setBooster(false); }, { passive: false });
+
+        // Touch Swipe Alternatives
+        let touchStartX = 0;
+        canvas.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+        }, { passive: true });
+
+        canvas.addEventListener('touchend', (e) => {
+            const touchEndX = e.changedTouches[0].clientX;
+            const diffX = touchEndX - touchStartX;
+            if (Math.abs(diffX) > 30) {
+                if (diffX < 0) moveLeft();
+                else moveRight();
+            }
+        }, { passive: true });
+
+        // Start / Restart Game
+        function startGame() {
+            resizeCanvas();
+            isPlaying = true;
+            startTime = Date.now();
+            elapsedTime = 0;
+            obstacles = [];
+            items = [];
+            collectedItems = 0;
+            isJumping = false;
+            jumpProgress = 0;
+            jumpScale = 1;
+            player.lane = 1;
+            player.x = getLaneX(1);
+            player.y = canvas.height - player.height - 20;
+            baseSpeed = 4;
+            speedMultiplier = 1;
+            spawnInterval = 60;
+            boosterEnergy = 100;
+            isBoosting = false;
+
+            updateJumpUI();
+
+            uiOverlay.classList.add('hidden');
+            flashOverlay.classList.add('hidden');
+            flashOverlay.classList.remove('hit-flash');
+
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            gameLoop();
+        }
+
+        // Spawn Red Obstacle Cars
+        function spawnObstacle() {
+            const lane = Math.floor(Math.random() * 3);
+            const obstacle = {
+                lane: lane,
+                x: getLaneX(lane),
+                y: -90,
+                width: 45,
+                height: 75,
+                color: '#ef4444'
+            };
+            obstacles.push(obstacle);
+        }
+
+        // Spawn Small Circle Items
+        function spawnItem() {
+            const lane = Math.floor(Math.random() * 3);
+            items.push({
+                lane: lane,
+                x: getLaneX(lane),
+                y: -30,
+                radius: 12,
+                pulse: 0
+            });
+        }
+
+        // Game Over Handler
+        function triggerGameOver() {
+            isPlaying = false;
+            isBoosting = false;
+            
+            flashOverlay.classList.remove('hidden');
+            flashOverlay.classList.add('hit-flash');
+
+            playCrashSound();
+
+            setTimeout(() => {
+                uiTitle.textContent = "게임 오버!";
+                uiDesc.textContent = "장애물 차에 부딪혔습니다.";
+                finalScore.textContent = `${elapsedTime.toFixed(1)}초`;
+                finalScoreBox.classList.remove('hidden');
+                startBtn.textContent = "다시 도전하기";
+                uiOverlay.classList.remove('hidden');
+            }, 300);
+        }
+
+        // Audio Synthesizers
+        function playCrashSound() {
+            try {
+                const ctxAudio = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctxAudio.createOscillator();
+                const gain = ctxAudio.createGain();
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(120, ctxAudio.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(30, ctxAudio.currentTime + 0.4);
+                
+                gain.gain.setValueAtTime(0.5, ctxAudio.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctxAudio.currentTime + 0.4);
+
+                osc.connect(gain);
+                gain.connect(ctxAudio.destination);
+                
+                osc.start();
+                osc.stop(ctxAudio.currentTime + 0.4);
+            } catch (e) {}
+        }
+
+        function playItemSound() {
+            try {
+                const ctxAudio = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctxAudio.createOscillator();
+                const gain = ctxAudio.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, ctxAudio.currentTime);
+                osc.frequency.setValueAtTime(880, ctxAudio.currentTime + 0.08);
+
+                gain.gain.setValueAtTime(0.3, ctxAudio.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctxAudio.currentTime + 0.2);
+
+                osc.connect(gain);
+                gain.connect(ctxAudio.destination);
+
+                osc.start();
+                osc.stop(ctxAudio.currentTime + 0.2);
+            } catch (e) {}
+        }
+
+        function playJumpSound() {
+            try {
+                const ctxAudio = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctxAudio.createOscillator();
+                const gain = ctxAudio.createGain();
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(200, ctxAudio.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, ctxAudio.currentTime + 0.3);
+
+                gain.gain.setValueAtTime(0.4, ctxAudio.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctxAudio.currentTime + 0.3);
+
+                osc.connect(gain);
+                gain.connect(ctxAudio.destination);
+
+                osc.start();
+                osc.stop(ctxAudio.currentTime + 0.3);
+            } catch (e) {}
+        }
+
+        // Main Game Loop
+        function gameLoop() {
+            if (!isPlaying) return;
+
+            elapsedTime = (Date.now() - startTime) / 1000;
+            scoreText.textContent = `${elapsedTime.toFixed(1)}초`;
+
+            if (isBoosting) {
+                boosterEnergy -= BOOST_CONSUMPTION;
+                if (boosterEnergy <= 0) {
+                    boosterEnergy = 0;
+                    isBoosting = false;
+                }
+            } else {
+                if (boosterEnergy < MAX_BOOSTER) {
+                    boosterEnergy += BOOST_RECHARGE;
+                    if (boosterEnergy > MAX_BOOSTER) boosterEnergy = MAX_BOOSTER;
+                }
+            }
+
+            if (isJumping) {
+                jumpProgress += 0.03;
+                jumpScale = 1 + Math.sin(jumpProgress * Math.PI) * 0.45;
+
+                if (jumpProgress >= 1) {
+                    isJumping = false;
+                    jumpProgress = 0;
+                    jumpScale = 1;
+                }
+            }
+
+            boosterBar.style.width = `${(boosterEnergy / MAX_BOOSTER) * 100}%`;
+            if (isBoosting) {
+                boosterStatusText.textContent = "BOOSTING!";
+                boosterStatusText.className = "text-[10px] text-amber-300 font-extrabold animate-pulse";
+            } else if (boosterEnergy < 20) {
+                boosterStatusText.textContent = "RECHARGING";
+                boosterStatusText.className = "text-[10px] text-red-400 font-bold";
+            } else {
+                boosterStatusText.textContent = "READY";
+                boosterStatusText.className = "text-[10px] text-amber-400 font-bold";
+            }
+
+            const boostFactor = isBoosting ? 2.2 : 1.0;
+            speedMultiplier = (1 + (elapsedTime / 15)) * boostFactor;
+            const currentSpeed = baseSpeed * speedMultiplier;
+            spawnInterval = Math.max(20, 60 - Math.floor(elapsedTime * 1.5));
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawRoad(currentSpeed);
+
+            itemSpawnTimer++;
+            if (itemSpawnTimer >= 100) {
+                spawnItem();
+                itemSpawnTimer = 0;
+            }
+
+            for (let i = items.length - 1; i >= 0; i--) {
+                let it = items[i];
+                it.y += currentSpeed;
+                drawItem(it);
+
+                const dist = Math.hypot(player.x - it.x, (player.y + player.height / 2) - it.y);
+                if (dist < it.radius + player.width / 2) {
+                    if (collectedItems < JUMP_REQUIRED_ITEMS) {
+                        collectedItems++;
+                        playItemSound();
+                        updateJumpUI();
+                    }
+                    items.splice(i, 1);
+                    continue;
+                }
+
+                if (it.y > canvas.height + 50) {
+                    items.splice(i, 1);
+                }
+            }
+
+            // 장애물 차를 플레이어 차보다 먼저 생성/이동 및 렌더링
+            spawnTimer++;
+            if (spawnTimer >= spawnInterval) {
+                spawnObstacle();
+                spawnTimer = 0;
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.y += currentSpeed;
+                drawCar(obs.x, obs.y, obs.width, obs.height, obs.color, false, false, 1);
+
+                const isAirborne = isJumping && jumpScale > 1.25;
+                if (!isAirborne && checkCollision(player, obs)) {
+                    triggerGameOver();
+                    return;
+                }
+
+                if (obs.y > canvas.height + 100) {
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // 장애물 차 위에 플레이어 차를 항상 최상단 레이어로 그리기
+            const targetX = getLaneX(player.lane);
+            player.x += (targetX - player.x) * 0.25;
+            drawCar(player.x, player.y, player.width, player.height, player.color, true, isBoosting, jumpScale);
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // Render Road and Dashed Lines
+        function drawRoad(speed) {
+            const w = canvas.width;
+            const h = canvas.height;
+            const laneW = w / 3;
+
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.fillStyle = '#f59e0b';
+            ctx.fillRect(0, 0, 5, h);
+            ctx.fillRect(w - 5, 0, 5, h);
+
+            roadOffset = (roadOffset + speed) % 40;
+            ctx.strokeStyle = '#64748b';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([20, 20]);
+            ctx.lineDashOffset = -roadOffset;
+
+            ctx.beginPath();
+            ctx.moveTo(laneW, -40);
+            ctx.lineTo(laneW, h + 40);
+            ctx.moveTo(laneW * 2, -40);
+            ctx.lineTo(laneW * 2, h + 40);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Render Small Circle Items
+        function drawItem(it) {
+            it.pulse += 0.08;
+            const currentRadius = it.radius + Math.sin(it.pulse) * 2;
+
+            ctx.save();
+            ctx.shadowColor = '#f59e0b';
+            ctx.shadowBlur = 10;
+
+            ctx.fillStyle = '#fbbf24';
+            ctx.beginPath();
+            ctx.arc(it.x, it.y, currentRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(it.x - 3, it.y - 3, currentRadius * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // Render Cars (Player and Obstacles)
+        function drawCar(centerX, centerY, width, height, color, isPlayer, boosting, scale = 1) {
+            const scaledW = width * scale;
+            const scaledH = height * scale;
+            const x = centerX - scaledW / 2;
+            const y = centerY - (scaledH - height) / 2;
+            const radius = 8 * scale;
+
+            ctx.save();
+            
+            if (isPlayer && scale > 1) {
+                ctx.fillStyle = 'rgba(0,0,0,0.25)';
+                ctx.beginPath();
+                ctx.ellipse(centerX, centerY + height / 2 + 10, width * 0.6, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            if (isPlayer && boosting) {
+                ctx.fillStyle = '#f97316';
+                ctx.beginPath();
+                ctx.moveTo(centerX - 12 * scale, y + scaledH);
+                ctx.lineTo(centerX, y + scaledH + (25 + Math.random() * 10) * scale);
+                ctx.lineTo(centerX + 12 * scale, y + scaledH);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = '#fef08a';
+                ctx.beginPath();
+                ctx.moveTo(centerX - 6 * scale, y + scaledH);
+                ctx.lineTo(centerX, y + scaledH + (15 + Math.random() * 5) * scale);
+                ctx.lineTo(centerX + 6 * scale, y + scaledH);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            if (scale === 1) {
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                drawRoundedRect(x + 3, y + 3, scaledW, scaledH, radius);
+                ctx.fill();
+            }
+
+            ctx.fillStyle = color;
+            drawRoundedRect(x, y, scaledW, scaledH, radius);
+            ctx.fill();
+
+            if (isPlayer && scale > 1) {
+                ctx.strokeStyle = '#34d399';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            ctx.fillStyle = isPlayer ? '#0f172a' : '#450a0a';
+            const windowHeight = scaledH * 0.25;
+            const windowY = isPlayer ? y + scaledH * 0.2 : y + scaledH * 0.55;
+            drawRoundedRect(x + 5 * scale, windowY, scaledW - 10 * scale, windowHeight, 4 * scale);
+            ctx.fill();
+
+            ctx.fillStyle = isPlayer ? (boosting ? '#38bdf8' : '#fef08a') : '#f87171';
+            const lightY = isPlayer ? y + 4 * scale : y + scaledH - 8 * scale;
+            ctx.fillRect(x + 6 * scale, lightY, 8 * scale, 4 * scale);
+            ctx.fillRect(x + scaledW - 14 * scale, lightY, 8 * scale, 4 * scale);
+
+            ctx.restore();
+        }
+
+        // Simple Box Collision Detection
+        function checkCollision(p, o) {
+            const pX = p.x - p.width / 2 + 6;
+            const pY = p.y + 6;
+            const pW = p.width - 12;
+            const pH = p.height - 12;
+
+            const oX = o.x - o.width / 2 + 6;
+            const oY = o.y + 6;
+            const oW = o.width - 12;
+            const oH = o.height - 12;
+
+            return (
+                pX < oX + oW &&
+                pX + pW > oX &&
+                pY < oY + oH &&
+                pY + pH > oY
+            );
+        }
+
+        // Event Listener for Start Button
+        startBtn.addEventListener('click', startGame);
+
+        window.onload = function() {
+            resizeCanvas();
+            drawRoad(0);
+        };
+    </script>
+</body>
+</html>
